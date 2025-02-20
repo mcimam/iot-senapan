@@ -1,62 +1,43 @@
+import network
+import uasyncio as asyncio
+
 from config import ConfigHandler
-from web import WebServer
 from gun import handle_shooting
+from webpage import app
 
-import asyncio
+print("Booting", end =" ")
 
-CH = ConfigHandler()
-CH.read()
+ch = ConfigHandler()
+loop = asyncio.get_event_loop()
 
+enable_web = ch.config.get("ENABLE_WEB", 1)
 
-# setup_gun()
+print(".", end =" ")
 
-# Starting Hotspot and webserver
-if CH.config["ENABLE_WEB"]  == 1:
-    SSID = "SENAPAN"
-    PASSWORD = "1234"
-    WS = WebServer(SSID, PASSWORD)
-
-    WS.setup_ap()
-
-
+# GUN 
 async def main_shoot():
     while True:
         handle_shooting()
+        if enable_web:
+            await asyncio.sleep_ms(ch.config.get("DELAY_WEB", 200))        
+loop.create_task(main_shoot())
+print(".", end =" ")
 
-# Create an Event Loop
-async def handle_client(reader, writer):
-    print("Client connected")
-    request_line = await reader.readline()
-    print("Request:", request_line)
-
-    # Skip HTTP request headers
-    while await reader.readline() != b"\r\n":
-        pass
-
-    request = str(request_line, "utf-8").split()[1]
-    print("Request:", request)
-
-async def main_server():
-    print("TRYING SERVER ")
-    server = await asyncio.start_server(handle_client, "0.0.0.0", 80)
-    print("SERVER STARTED")
-    print(server)
-
-    while True:
-        await asyncio.sleep(5)
-        print("Print every 5 s")
-
-# loop = asyncio.get_event_loop()
-# loop.create_task(main_server())
-# loop.create_task(main_shoot())
-
-async def main():
-    # Run both the server and `main_shoot` concurrently
-    await asyncio.gather(main_server(), main_shoot())
+# SERVER
+if enable_web:
+    print(".", end =" ")
+    ap = network.WLAN(network.AP_IF)
+    ap.config(essid="SENAPAN", pm=network.WLAN.PM_POWERSAVE)
+    ap.active(True)
+        
+    loop.create_task(app.serve())
+    print(".")
+    print("Server Started")
 
 try:
     # Run the event loop indefinitely
-    asyncio.run(main())
+    print("Booting Finish")
+    loop.run_forever()
 except Exception as e:
     print('Error occured: ', e)
 except KeyboardInterrupt:

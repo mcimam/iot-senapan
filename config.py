@@ -2,6 +2,7 @@ class ConfigHandler:
     def __init__(self):
         self.config_file = "config"
         self.config = {}
+        self.read()
 
     def read(self):
         """Reads the configuration file into a dictionary."""

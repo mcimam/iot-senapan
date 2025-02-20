@@ -11,7 +11,6 @@ BFS = Pin(33, Pin.IN)
 
 # LOAD SERVICE
 CH = ConfigHandler()
-CH.read()
 
 # variable
 timer = Timer(1)  # for debouncer
@@ -44,17 +43,23 @@ def fire():
 def shoot():
     if BFS.value() == 0:
         fire()
+        sleep_ms(CH.config["DELAY_FIRE"])
     # elif fire_state == 1:
     #     for i in range(1, 3):
     #         fire()
+    #         sleep_ms(CH.config["DELAY_FIRE"])
     elif BFS.value() == 1:
         while BF.value() == 1:
             fire()
+            sleep_ms(CH.config["DELAY_FIRE"])
+
 
 
 # INTERUPT
 def handle_shooting():
     global shoot_state
+    # print("---")
+    # print(BF.value())
     if BF.value() == 1 and shoot_state is False:
         shoot_state = True
         shoot()

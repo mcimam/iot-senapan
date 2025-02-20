@@ -1,249 +1,220 @@
-import network
-import asyncio
-from config import ConfigHandler
-from gun import shoot, ammo_count
+########################
+# micropython-aioweb
+#   https://github.com/wybiral/micropython-aioweb
+########################
+
+import uasyncio as asyncio
+from hashlib import sha1
+from binascii import b2a_base64
+import struct
+
+def unquote_plus(s):
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        c = s[i]
+        i += 1
+        if c == '+':
+            out.append(' ')
+        elif c == '%':
+            out.append(chr(int(s[i:i + 2], 16)))
+            i += 2
+        else:
+            out.append(c)
+    return ''.join(out)
+
+def parse_qs(s):
+    out = {}
+    for x in s.split('&'):
+        kv = x.split('=', 1)
+        key = unquote_plus(kv[0])
+        kv[0] = key
+        if len(kv) == 1:
+            val = True
+            kv.append(val)
+        else:
+            val = unquote_plus(kv[1])
+            kv[1] = val
+        tmp = out.get(key, None)
+        if tmp is None:
+            out[key] = val
+        else:
+            if isinstance(tmp, list):
+                tmp.append(val)
+            else:
+                out[key] = [tmp, val]
+    return out
+
+async def _parse_request(r, w):
+    line = await r.readline()
+    if not line:
+        raise ValueError
+    parts = line.decode().split()
+    if len(parts) < 3:
+        raise ValueError
+    r.method = parts[0]
+    r.path = parts[1]
+    parts = r.path.split('?', 1)
+    if len(parts) < 2:
+        r.query = None
+    else:
+        r.path = parts[0]
+        r.query = parts[1]
+    r.headers = await _parse_headers(r)
+
+async def _parse_headers(r):
+    headers = {}
+    while True:
+        line = await r.readline()
+        if not line:
+            break
+        line = line.decode()
+        if line == '\r\n':
+            break
+        key, value = line.split(':', 1)
+        headers[key.lower()] = value.strip()
+    return headers
 
 
-class WebServer:
-    def __init__(self, ssid, password):
-        self.ssid = ssid
-        self.password = password
-        self.ch = ConfigHandler()
-        self.ch.read()
-        self.value = self.ch.config
-        self.server = None
+class App:
 
-    def setup_ap(self):
-        global ap
-        ap = network.WLAN(network.AP_IF)
-        ap.config(essid=self.ssid, password=self.password)
-        ap.active(True)
-        print("Connection successful")
-        print(ap.ifconfig())
+    def __init__(self, host='0.0.0.0', port=80):
+        self.host = host
+        self.port = port
+        self.handlers = []
 
-    def start_web(self):
-        self.server = asyncio.start_server(self.handle_client, "0.0.0.0", 80)
+    def route(self, path, methods=['GET']):
+        def wrapper(handler):
+            self.handlers.append((path, methods, handler))
+            return handler
+        return wrapper
 
-    #     global web_s
-    #     web_s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    #     web_s.bind(("", 80))
-    #     web_s.listen(5)
+    async def _dispatch(self, r, w):
+        try:
+            await _parse_request(r, w)
+        except:
+            await w.wait_closed()
+            return
+        for path, methods, handler in self.handlers:
+            if r.path != path:
+                continue
+            if r.method not in methods:
+                continue
+            await handler(r, w)
+            await w.wait_closed()
+            return
+        await w.awrite(b'HTTP/1.0 404 Not Found\r\n\r\nNot Found')
+        await w.wait_closed()
 
-    def web_page(self):
-        html = """
-            <html lang="en">
-            <head>
-                <title>SENAPAN</title>
-                <style>
-                    body {
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
-                        justify-content: center;
-                        min-height: 100vh;
-                        margin: 0;
-                        font-family: Arial, sans-serif;
-                        background-color: #f4f4f4;
-                        padding: 20px;
-                        box-sizing: border-box;
-                    }
+    async def serve(self):
+        await asyncio.start_server(self._dispatch, self.host, self.port)
 
-                    h1 {
-                        margin-bottom: 20px;
-                        font-size: 2rem;
-                        text-align: center;
-                        color: #333;
-                    }
 
-                    button {
-                        padding: 0.75rem 1.5rem;
-                        font-size: 1rem;
-                        border: none;
-                        border-radius: 5px;
-                        cursor: pointer;
-                        transition: background-color 0.3s ease;
-                    }
+class WebSocket:
 
-                    #counter-button {
-                        background-color: #007BFF;
-                        color: #fff;
-                    }
+    HANDSHAKE_KEY = b'258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+    
+    OP_TYPES = {
+        0x0: 'cont',
+        0x1: 'text',
+        0x2: 'bytes',
+        0x8: 'close',
+        0x9: 'ping',
+        0xa: 'pong',
+    }
 
-                    #counter-button:hover {
-                        background-color: #0056b3;
-                    }
+    @classmethod
+    async def upgrade(cls, r, w):
+        key = r.headers['sec-websocket-key'].encode()
+        key += WebSocket.HANDSHAKE_KEY
+        x = b2a_base64(sha1(key).digest()).strip()
+        w.write(b'HTTP/1.1 101 Switching Protocols\r\n')
+        w.write(b'Upgrade: websocket\r\n')
+        w.write(b'Connection: Upgrade\r\n')
+        w.write(b'Sec-WebSocket-Accept: ' + x + b'\r\n')
+        w.write(b'\r\n')
+        await w.drain()
+        return cls(r, w)
 
-                    #config-button {
-                        font-size: 0.875rem;
-                        background-color: #6c757d;
-                        color: #fff;
-                        margin-bottom: 20px;
-                    }
+    def __init__(self, r, w):
+        self.r = r
+        self.w = w
 
-                    #config-button:hover {
-                        background-color: #5a6268;
-                    }
+    async def recv(self):
+        r = self.r
+        x = await r.read(2)
+        if not x or len(x) < 2:
+            return None
+        out = {}
+        op, n = struct.unpack('!BB', x)
+        out['fin'] = bool(op & (1 << 7))
+        op = op & 0x0f
+        if op not in WebSocket.OP_TYPES:
+            raise None
+        out['type'] = WebSocket.OP_TYPES[op]
+        masked = bool(n & (1 << 7))
+        n = n & 0x7f
+        if n == 126:
+            n, = struct.unpack('!H', await r.read(2))
+        elif n == 127:
+            n, = struct.unpack('!Q', await r.read(8))
+        if masked:
+            mask = await r.read(4)
+        data = await r.read(n)
+        if masked:
+            data = bytearray(data)
+            for i in range(len(data)):
+                data[i] ^= mask[i % 4]
+            data = bytes(data)
+        if out['type'] == 'text':
+            data = data.decode()
+        out['data'] = data
+        return out
 
-                    /* Counter display */
-                    p {
-                        font-size: 1.25rem;
-                        margin: 10px 0;
-                        color: #333;
-                    }
+    async def send(self, msg):
+        if isinstance(msg, str):
+            await self._send_op(0x1, msg.encode())
+        elif isinstance(msg, bytes):
+            await self._send_op(0x2, msg)
 
-                    /* Form Styling */
-                    form {
-                        display: none;
-                        flex-direction: column;
-                        align-items: center;
-                        max-width: 400px;
-                        background-color: #fff;
-                        padding: 20px;
-                        border-radius: 8px;
-                        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                    }
+    async def _send_op(self, opcode, payload):
+        w = self.w
+        w.write(bytes([0x80 | opcode]))
+        n = len(payload)
+        if n < 126:
+            w.write(bytes([n]))
+        elif n < 65536:
+            w.write(struct.pack('!BH', 126, n))
+        else:
+            w.write(struct.pack('!BQ', 127, n))
+        w.write(payload)
+        await w.drain()
 
-                    label {
-                        font-size: 1rem;
-                        margin-bottom: 5px;
-                        color: #333;
-                    }
 
-                    input {
-                        padding: 0.5rem;
-                        margin-bottom: 15px;
-                        border: 1px solid #ccc;
-                        border-radius: 5px;
-                        font-size: 1rem;
-                    }
+class EventSource:
 
-                    button[type="submit"] {
-                        background-color: #28a745;
-                        color: #fff;
-                    }
+    @classmethod
+    async def upgrade(cls, r, w):
+        w.write(b'HTTP/1.0 200 OK\r\n')
+        w.write(b'Content-Type: text/event-stream\r\n')
+        w.write(b'Cache-Control: no-cache\r\n')
+        w.write(b'Connection: keep-alive\r\n')
+        w.write(b'Access-Control-Allow-Origin: *\r\n')
+        w.write(b'\r\n')
+        await w.drain()
+        return cls(r, w)
 
-                    button[type="submit"]:hover {
-                        background-color: #218838;
-                    }
+    def __init__(self, r, w):
+        self.r = r
+        self.w = w
 
-                    @media (max-width: 600px) {
-                        h1 {
-                            font-size: 1.5rem;
-                        }
-
-                        button {
-                            font-size: 0.875rem;
-                        }
-
-                        p {
-                            font-size: 1rem;
-                        }
-                    }
-                </style>
-            </head>
-            <body>
-                <h1>SENAPAN</h1>
-
-                <!-- Counter Section -->
-                <button id="counter-button" onclick="fire()">Fire</button>
-                <p>Counter: <span id="counter">%s</span></p>
-
-                <!-- Form Section -->
-                <button id="config-button" onclick="toggleForm()">⚙️ Configure</button>
-                <form id="config-form" action="/save" method="GET">
-                    <label for="field1">Delay Piston:</label>
-                    <input type="number" id="DELAY_PISTON" name="DELAY_PISTON" value=%s required>
-
-                    <label for="field2">Delay Valve:</label>
-                    <input type="number" id="DELAY_VALVE" name="DELAY_VALVE" value=%s required>
-
-                    <label for="field2">Delay Between:</label>
-                    <input type="number" id="DELAY_BETWEEN" name="DELAY_BETWEEN" value=%s required>
-
-                    <label for="field3">Delay Trigger:</label>
-                    <input type="number" id="DELAY_TRIGGER" name="DELAY_TRIGGER" value=%s required>
-
-                    <button type="submit">Save</button>
-                </form>
-
-                <script>
-                    let count = 0;
-
-                    function fire() {
-                        count++;
-                        document.getElementById("counter").textContent = count;
-
-                        fetch('/fire', {
-                            method: 'GET',
-                        }).then(response => {
-                            if (!response.ok) {
-                                console.error("API call failed:", response.statusText);
-                            } else {
-                                console.log("API call successful!");
-                            }
-                        }).catch(error => {
-                            console.error("Error during API call:", error);
-                        });
-                    }
-
-                    function toggleForm() {
-                        const form = document.getElementById("config-form");
-                        form.style.display = form.style.display === "none" ? "flex" : "none";
-                    }
-                </script>
-            </body>
-            </html>
-        """ % (
-            ammo_count,
-            self.value.get("DELAY_PISTON"),
-            self.value.get("DELAY_VALVE"),
-            self.value.get("DELAY_BETWEEN"),
-            self.value.get("DELAY_TRIGGER"),
-        )
-
-        return html
-
-    def save_config(self, values):
-        for v, k in values:
-            self.ch.update(v, k)
-        self.ch.write()
-
-    async def handle_client(reader, writer):
-        print("Client connected")
-        request_line = await reader.readline()
-        print("Request:", request_line)
-
-        # Skip HTTP request headers
-        while await reader.readline() != b"\r\n":
-            pass
-
-        request = str(request_line, "utf-8").split()[1]
-        print("Request:", request)
-
-    def recieve_conn(self):
-        global web_s
-        conn, addr = web_s.accept()
-        # print("---------")
-        # print(addr)
-
-        req = conn.recv(1024).decode("utf-8")
-        # print('Request:', req)
-
-        # We Get REQUEST PART
-        request = req.split("\n")[0]
-        if "/save" in request:
-            try:
-                params = request.split("?")[1].split(" ")[0].split("&")
-                for param in params:
-                    key, value = param.split("=")
-                    # print("%s : %s" % (key, value))
-                    self.ch.update(key, value)
-            except Exception:
-                print("Error")
-
-        elif ("/fire") in request:
-            shoot()
-
-        response = self.web_page()
-        conn.send(response)
-        conn.close()
+    async def send(self, msg, id=None, event=None):
+        w = self.w
+        if id is not None:
+            w.write(b'id: {}\r\n'.format(id))
+        if event is not None:
+            w.write(b'event: {}\r\n'.format(event))
+        w.write(b'data: {}\r\n'.format(msg))
+        w.write(b'\r\n')
+        await w.drain()
