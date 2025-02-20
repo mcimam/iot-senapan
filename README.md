@@ -1,6 +1,8 @@
 # IOT SENAPAN
 
-This code contains python software to control home-made airgun. This software is design to be deployed to esp-32 with device 
+This project provides Python-based software for controlling a custom-built airgun. The software is designed for deployment on an ESP32 microcontroller and utilizes MicroPython for embedded execution. 
+
+**DISCLAIMER**: This project involves the control of potentially dangerous devices.  Use with extreme caution.  The authors are not responsible for any injury, damage, or legal issues resulting from the use or misuse of this software or hardware.  This project is for educational and experimental purposes only.
 
 ## Config
 Config can be set through rpl or website or directly modified throu config file. 
