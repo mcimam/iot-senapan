@@ -1,0 +1,78 @@
+# Python-specific
+__pycache__/
+*.pyc
+*.pyd
+*.egg.mypy_cache/.pytest_cache/.coverage
+htmlcov/.tox
+dist/
+build/
+*.whl
+*.tar.gz
+*.bdist_egg
+
+# VS Code specific.vscode/.DS_Store
+*.code-workspace
+*.code-settings
+settings.json
+keybindings.json
+extensions.json
+launch.json
+tasks.json
+c_cpp_properties.json # If you're using C/C++ in VS Code
+
+# General OS and Editor files.idea/ # IntelliJ IDEA.project.classpath.settings
+*.swp
+*~
+Thumbs.db.cache.local/share/Trash/*  # Linux trash.Trashes             # macOS trash
+
+# Environment variables and secrets.env.env.example
+*.ini # Configuration files that might contain secrets
+*.cfg # Configuration files that might contain secrets
+
+# Logs and temporary files
+*.log
+*.tmp
+temp/
+tmp/
+*.bak
+*.old
+*.swo
+*.swp
+*.lock
+*.gz  # Often used for compressed archives, might want to keep some
+*.zip # Often used for compressed archives, might want to keep some
+*.rar # Often used for compressed archives, might want to keep some
+
+# Data files (if large or frequently changing and not needed in repo)
+data/
+large_files/
+*.csv # Example: CSV files
+*.tsv # Example: TSV files
+*.json # Example: JSON files
+*.db  # Example: Database files
+*.sqlite # Example: SQLite databases
+
+# Testing and coverage reports.pytest_cache.coverage
+htmlcov/
+coverage.xml.nose_cache
+
+# Documentation files (if generated)
+docs/_build/
+
+# Virtual environment
+venv/.venv/
+env/
+virtualenv/.virtualenv/
+
+# Installers
+*.msi
+*.exe
+
+# Git-specific (generally avoid these).git/info/refs # Unless you have a very specific reason
+
+# Other files you might want to ignore.ropeproject
+__pycache__/.history
+*.orig
+*.rej
+*.DS_Store # macOS specific file
+
